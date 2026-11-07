@@ -79,7 +79,20 @@ journalctl --user -u bourse -f      # journaux
 
 ## Exposition sur Internet
 
-**Ne pas exposer le port 9699 en HTTP simple sur Internet** : les mots de passe et cookies circuleraient en clair. Montage recommandé :
+**Ne pas exposer le port 9699 en HTTP simple sur Internet** : les mots de passe et cookies circuleraient en clair.
+
+### Option retenue : Cloudflare Tunnel
+
+Aucun port à ouvrir sur la box : `cloudflared`, installé sur ce PC, établit une connexion sortante vers Cloudflare,
+qui fournit le HTTPS et renvoie les visiteurs dans ce tunnel jusqu'à `127.0.0.1:9699`. Mode d'emploi dans
+`deploy/cloudflared.example.yml`. Dans `.env`, garder `BOURSE_FORWARDED_ALLOW_IPS=127.0.0.1` ; Bourse reçoit
+alors la vraie IP des visiteurs (`X-Forwarded-For`) et sait que la connexion d'origine est en HTTPS (cookie `Secure`, HSTS).
+
+À savoir : Cloudflare déchiffre le trafic à son niveau (il voit passer les mots de passe), et l'accès dépend de son service.
+
+### Alternative : reverse proxy sur ce PC
+
+Montage :
 
 1. Un nom de domaine pointant vers votre IP publique (par ex. gratuit avec DuckDNS).
 2. Sur la box : rediriger les ports **80 et 443** (pas 9699) vers ce PC.
@@ -109,7 +122,7 @@ bourse/
   cli.py          gestion des comptes
   config.py       configuration (.env)
   static/         interface : HTML/CSS/JS sans étape de build, ECharts 5.5.1 en local
-deploy/           service systemd, exemple Caddy
+deploy/           service systemd, exemples Cloudflare Tunnel et Caddy
 ```
 
 API (toutes les routes demandent une session, sauf `/api/login` et `/api/setup`) :

@@ -19,8 +19,10 @@ Ne jamais supprimer une instruction : la marquer comme remplacée si elle évolu
 ### Serveur
 - Programme Python avec environnement virtuel, serveur web tournant sous **Linux**, port **9699**.
 - Accessible depuis un **navigateur** et depuis un **téléphone** ; affichage ajusté et ergonomique pour les deux.
-- Serveur destiné à être **exposé sur Internet** → authentification obligatoire, HTTPS via reverse proxy
-  recommandé (voir `deploy/Caddyfile.example`), pas d'inscription publique.
+- Serveur destiné à être **exposé sur Internet** → authentification obligatoire, pas d'inscription publique.
+- Accès extérieur **via Cloudflare** (décision du 2026-11-07) : Cloudflare Tunnel (`cloudflared` sur le PC,
+  aucun port ouvert sur la box), voir `deploy/cloudflared.example.yml`. Caddy (`deploy/Caddyfile.example`) reste
+  documenté comme alternative.
 
 ### Données
 - Valeurs des indices récupérées via l'API d'un site boursier sérieux : **Yahoo Finance** (bibliothèque `yfinance`),
@@ -57,7 +59,7 @@ Ne jamais supprimer une instruction : la marquer comme remplacée si elle évolu
   anti force brute — `bourse/market.py` yfinance + cache — `bourse/db.py` SQLite — `bourse/cli.py` comptes.
 - `bourse/static/` : HTML/CSS/JS sans build, ECharts 5.5.1 servi localement (pas de CDN, CSP stricte).
 - Lancement : `./run.sh` (crée le venv si besoin) ou `.venv/bin/python -m bourse`. Configuration : `.env` (voir `.env.example`).
-- Déploiement : `deploy/bourse.service` (systemd utilisateur), `deploy/Caddyfile.example` (HTTPS).
+- Déploiement : `deploy/bourse.service` (systemd utilisateur), `deploy/cloudflared.example.yml` (accès extérieur retenu), `deploy/Caddyfile.example` (alternative).
 
 ## Pistes notées (non demandées explicitement)
 
@@ -72,3 +74,4 @@ Ne jamais supprimer une instruction : la marquer comme remplacée si elle évolu
 | 2026-11-07 | Réponses aux questions : source **Yahoo Finance** ; favoris **côté serveur, par utilisateur** ; serveur **exposé sur Internet** ; recherche sur **tout instrument**. |
 | 2026-11-07 | Créer un fichier `CLAUDE.md` qui suit toutes les instructions de l'utilisateur (ce fichier). |
 | 2026-11-07 | Expliquer le stockage des utilisateurs / mots de passe et sa robustesse. Pouvoir **créer et modifier les utilisateurs depuis l'interface web** plutôt qu'en ligne de commande → rôle administrateur, écran « Gérer les utilisateurs », création du premier compte depuis la page de connexion. Droits du fichier de base restreints à 600. |
+| 2026-11-07 | Questions d'explication (empreinte, Argon2id, rôle du mot de passe, reverse proxy, portée de `BOURSE_HOST`). Décision : **accès depuis l'extérieur par Cloudflare** → Cloudflare Tunnel documenté, fichiers statiques servis en `Cache-Control: no-cache` pour que le cache de Cloudflare ne serve jamais d'ancien JS/CSS. |

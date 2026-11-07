@@ -63,6 +63,10 @@ async def security_middleware(request: Request, call_next):
         h.setdefault("Strict-Transport-Security", "max-age=31536000")
     if request.url.path.startswith("/api/"):
         h.setdefault("Cache-Control", "no-store")
+    else:
+        # Revalidation systématique (ETag → 304 si inchangé) : après une mise à jour, ni le navigateur
+        # ni un CDN placé devant (Cloudflare) ne servent d'ancien JS/CSS.
+        h.setdefault("Cache-Control", "no-cache")
     return response
 
 

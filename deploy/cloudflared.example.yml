@@ -1,0 +1,35 @@
+# Accès depuis Internet par Cloudflare Tunnel (aucun port à ouvrir sur la box).
+#
+# Principe : le programme cloudflared, sur ce PC, ouvre lui-même une connexion SORTANTE chiffrée vers
+# Cloudflare. Les visiteurs se connectent en HTTPS à Cloudflare, qui renvoie leurs requêtes dans ce tunnel ;
+# cloudflared les transmet à Bourse sur 127.0.0.1:9699.
+#
+# Prérequis : un nom de domaine dont les DNS sont gérés par Cloudflare (compte gratuit).
+#
+# Méthode la plus simple (tunnel géré depuis le tableau de bord) :
+#   1. dash.cloudflare.com > Zero Trust > Networks > Tunnels > Create a tunnel (type « Cloudflared »)
+#   2. sudo pacman -S cloudflared, puis la commande « cloudflared service install <jeton> » affichée
+#   3. Public Hostname : bourse.mondomaine.fr  →  Service : HTTP  localhost:9699
+#   Ce fichier n'est alors pas nécessaire.
+#
+# Méthode en ligne de commande (tunnel décrit par ce fichier) :
+#   cloudflared tunnel login
+#   cloudflared tunnel create bourse                 # crée ~/.cloudflared/<UUID>.json
+#   cloudflared tunnel route dns bourse bourse.mondomaine.fr
+#   cp deploy/cloudflared.example.yml ~/.cloudflared/config.yml   # puis adapter UUID et domaine
+#   cloudflared tunnel run bourse
+#
+# Côté Bourse (.env) : BOURSE_FORWARDED_ALLOW_IPS=127.0.0.1 (cloudflared tourne sur ce PC).
+# BOURSE_HOST : 127.0.0.1 si on passe toujours par l'adresse Cloudflare, 0.0.0.0 pour garder en plus
+# l'accès direct http://<IP-du-PC>:9699 depuis le Wi-Fi.
+#
+# Réglages Cloudflare : SSL/TLS « Always Use HTTPS » activé ; laisser Rocket Loader désactivé
+# (il injecte du JavaScript que la politique de sécurité CSP de Bourse bloquerait).
+
+tunnel: 00000000-0000-0000-0000-000000000000
+credentials-file: /home/VOUS/.cloudflared/00000000-0000-0000-0000-000000000000.json
+
+ingress:
+  - hostname: bourse.mondomaine.fr
+    service: http://127.0.0.1:9699
+  - service: http_status:404
