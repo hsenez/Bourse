@@ -413,6 +413,31 @@ $("suggestions").addEventListener("click", (e) => {
   if (b) selectInstrument({ symbol: b.dataset.symbol, name: b.dataset.name, type: "INDEX", exchange: "" });
 });
 
+/* Compte ---------------------------------------------------------------------- */
+
+let me = null;
+
+function setMe(info) {
+  me = info;
+  $("username").textContent = info.username;
+  $("avatar").textContent = info.username.slice(0, 1);
+  $("admin-badge").hidden = !info.isAdmin;
+  $("open-users").hidden = !info.isAdmin;
+}
+
+function setAccountMenuOpen(open) {
+  $("account-menu").hidden = !open;
+  $("account-btn").setAttribute("aria-expanded", String(open));
+}
+$("account-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  setAccountMenuOpen($("account-menu").hidden);
+});
+document.addEventListener("click", (e) => {
+  if (!$("account-menu").hidden && !e.target.closest("#account-btn")) setAccountMenuOpen(false);
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") setAccountMenuOpen(false); });
+
 $("logout").addEventListener("click", async () => {
   try { await api("/api/logout", { method: "POST" }); } finally { window.location.href = "/login"; }
 });
@@ -444,6 +469,171 @@ $("password-form").addEventListener("submit", async (e) => {
   }
 });
 
+/* Administration des utilisateurs ------------------------------------------- */
+
+const usersDialog = $("users-dialog");
+let users = [];
+let editingUser = null; // null = création
+
+const fmtDay = (ts) => new Date(ts * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+const fmtDayTime = (ts) => new Date(ts * 1000).toLocaleString("fr-FR", {
+  day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+});
+const plural = (n, word) => `${n} ${word}${n > 1 ? "s" : ""}`;
+
+function renderUsers() {
+  const list = $("user-list");
+  list.replaceChildren();
+  for (const u of users) {
+    const isMe = u.id === me?.id;
+    const meta = [
+      `créé le ${fmtDay(u.createdAt)}`,
+      u.lastLoginAt ? `dernière connexion ${fmtDayTime(u.lastLoginAt)}` : "jamais connecté",
+      plural(u.favorites, "favori"),
+      u.sessions > 1 ? `${u.sessions} sessions actives` : `${u.sessions} session active`,
+    ].join(" · ");
+    list.append(el("li", { class: "user-row" },
+      el("span", { class: "avatar", "aria-hidden": "true" }, u.username.slice(0, 1)),
+      el("div", { class: "user-info" },
+        el("div", { class: "user-name" },
+          u.username, " ",
+          u.isAdmin ? el("span", { class: "badge index" }, "admin") : null,
+          isMe ? el("span", { class: "badge" }, "vous") : null,
+        ),
+        el("div", { class: "user-meta" }, meta),
+      ),
+      el("div", { class: "actions" },
+        el("button", {
+          class: "text-btn", disabled: u.sessions === 0,
+          title: "Fermer toutes les sessions de cet utilisateur (sur tous ses appareils)",
+          onclick: () => revokeUserSessions(u),
+        }, "Déconnecter"),
+        el("button", { class: "text-btn", onclick: () => openUserForm(u) }, "Modifier"),
+      ),
+    ));
+  }
+}
+
+function showUsersList() {
+  $("users-list-view").hidden = false;
+  $("user-form").hidden = true;
+}
+
+async function openUsers() {
+  showUsersList();
+  usersDialog.showModal();
+  try {
+    users = (await api("/api/admin/users")).users;
+    renderUsers();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function openUserForm(user) {
+  editingUser = user;
+  const f = $("user-form");
+  f.reset();
+  $("user-error").hidden = true;
+  const isMe = user && user.id === me?.id;
+  $("user-form-title").textContent = user ? `Modifier « ${user.username} »` : "Nouvel utilisateur";
+  $("user-password-label").textContent = user ? "Nouveau mot de passe (laisser vide pour le conserver)" : "Mot de passe";
+  $("save-user").textContent = user ? "Enregistrer" : "Créer";
+  $("delete-user").hidden = !user || isMe;
+  f.username.value = user ? user.username : "";
+  f.isAdmin.checked = !!user?.isAdmin;
+  $("user-form-hint").textContent = user
+    ? (isMe
+      ? "Changer votre mot de passe déconnecte vos autres appareils, pas celui-ci."
+      : "Changer le mot de passe déconnecte cet utilisateur de tous ses appareils.")
+    : "L'utilisateur pourra changer son mot de passe depuis le menu de son compte.";
+  $("users-list-view").hidden = true;
+  f.hidden = false;
+  f.username.focus();
+}
+
+async function afterSelfChange() {
+  setMe(await api("/api/me"));
+  if (!me.isAdmin) {
+    usersDialog.close();
+    toast("Vous n'êtes plus administrateur.");
+    return false;
+  }
+  return true;
+}
+
+$("open-users").addEventListener("click", openUsers);
+$("close-users").addEventListener("click", () => usersDialog.close());
+$("new-user").addEventListener("click", () => openUserForm(null));
+$("cancel-user").addEventListener("click", showUsersList);
+
+$("user-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const err = $("user-error");
+  err.hidden = true;
+  const fail = (msg) => { err.textContent = msg; err.hidden = false; };
+
+  const username = f.username.value.trim();
+  const password = f.password.value;
+  if (!username) return fail("Indiquez un nom d'utilisateur.");
+  if (!editingUser && !password) return fail("Indiquez un mot de passe.");
+  if (password && password !== f.confirm.value) return fail("La confirmation ne correspond pas.");
+
+  const button = $("save-user");
+  button.disabled = true;
+  try {
+    let res;
+    if (editingUser) {
+      const body = {};
+      if (username !== editingUser.username) body.username = username;
+      if (f.isAdmin.checked !== editingUser.isAdmin) body.isAdmin = f.isAdmin.checked;
+      if (password) body.password = password;
+      if (!Object.keys(body).length) { showUsersList(); return; }
+      res = await api(`/api/admin/users/${editingUser.id}`, { method: "PATCH", body });
+      toast(`Compte « ${username} » modifié.`);
+    } else {
+      res = await api("/api/admin/users", { method: "POST", body: { username, password, isAdmin: f.isAdmin.checked } });
+      toast(`Compte « ${username} » créé.`);
+    }
+    users = res.users;
+    if (editingUser && editingUser.id === me.id && !(await afterSelfChange())) return;
+    renderUsers();
+    showUsersList();
+  } catch (ex) {
+    fail(ex.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("delete-user").addEventListener("click", async () => {
+  const u = editingUser;
+  if (!u || !window.confirm(`Supprimer définitivement « ${u.username} » et ses favoris ?`)) return;
+  try {
+    users = (await api(`/api/admin/users/${u.id}`, { method: "DELETE" })).users;
+    toast(`Compte « ${u.username} » supprimé.`);
+    renderUsers();
+    showUsersList();
+  } catch (ex) {
+    $("user-error").textContent = ex.message;
+    $("user-error").hidden = false;
+  }
+});
+
+async function revokeUserSessions(u) {
+  try {
+    const res = await api(`/api/admin/users/${u.id}/logout`, { method: "POST" });
+    users = res.users;
+    renderUsers();
+    toast(u.id === me.id
+      ? "Vos autres appareils ont été déconnectés."
+      : `${plural(res.revoked, "session")} de « ${u.username} » fermée${res.revoked > 1 ? "s" : ""}.`);
+  } catch (ex) {
+    toast(ex.message);
+  }
+}
+
 /* Rafraîchissement automatique ---------------------------------------------- */
 
 function periodicRefresh() {
@@ -469,8 +659,8 @@ document.addEventListener("visibilitychange", () => {
 
 (async function init() {
   try {
-    const [me, settings] = await Promise.all([api("/api/me"), api("/api/settings"), loadFavorites()]);
-    $("username").textContent = me.username;
+    const [meInfo, settings] = await Promise.all([api("/api/me"), api("/api/settings"), loadFavorites()]);
+    setMe(meInfo);
     state.options = settings.settings?.chart || {};
   } catch (err) {
     toast(err.message);

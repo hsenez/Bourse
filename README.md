@@ -22,16 +22,39 @@ cp .env.example .env          # puis adapter si besoin
 
 ## Comptes utilisateurs
 
-Il n'y a pas d'inscription en ligne (le serveur est prévu pour être exposé sur Internet). Les comptes se gèrent en ligne de commande :
+Il n'y a pas d'inscription publique (le serveur est prévu pour être exposé sur Internet).
+
+**Depuis l'interface web** (recommandé) :
+
+- **Première utilisation** : si la base est vide, la page de connexion propose de créer le compte
+  administrateur. Cette création n'est acceptée que depuis le réseau local (ou la machine elle-même).
+- **Administrateurs** : menu du compte (en bas de la barre latérale) > *Gérer les utilisateurs*. On peut y créer
+  un compte, le renommer, réinitialiser son mot de passe, lui donner ou retirer les droits d'administration,
+  fermer toutes ses sessions, ou le supprimer. Le dernier administrateur ne peut être ni rétrogradé ni supprimé.
+- **Chaque utilisateur** : menu du compte > *Changer mon mot de passe*.
+
+**En ligne de commande** (toujours disponible, utile en dépannage) :
 
 ```bash
-.venv/bin/python -m bourse.cli adduser hubert      # créer (mot de passe demandé, 10 caractères min.)
-.venv/bin/python -m bourse.cli passwd hubert       # changer un mot de passe (ferme ses sessions)
-.venv/bin/python -m bourse.cli deluser hubert      # supprimer (avec ses favoris)
-.venv/bin/python -m bourse.cli users               # lister
+.venv/bin/python -m bourse.cli adduser hubert [--admin]   # créer (mot de passe demandé, 10 caractères min.)
+.venv/bin/python -m bourse.cli passwd hubert              # changer un mot de passe (ferme ses sessions)
+.venv/bin/python -m bourse.cli admin hubert [--off]       # donner / retirer les droits d'administration
+.venv/bin/python -m bourse.cli deluser hubert             # supprimer (avec ses favoris)
+.venv/bin/python -m bourse.cli users                      # lister
 ```
 
-Chaque utilisateur peut aussi changer son mot de passe depuis l'interface.
+### Stockage des comptes
+
+Tout est dans la base SQLite `data/bourse.db` (droits `600`, dossier `700` : lisible uniquement par l'utilisateur
+qui fait tourner le serveur) :
+
+- `users` : nom, **empreinte Argon2id** du mot de passe (jamais le mot de passe lui-même), rôle administrateur,
+  préférences d'affichage, dates de création et de dernière connexion ;
+- `sessions` : **empreinte SHA-256** du jeton de session (le jeton lui-même n'existe que dans le cookie du navigateur),
+  date d'expiration (30 jours), navigateur ;
+- `favorites` : favoris de chaque utilisateur.
+
+Sauvegarder ce fichier suffit à sauvegarder tous les comptes et favoris.
 
 ## Lancement
 
@@ -70,7 +93,7 @@ Alternative sans proxy : `BOURSE_SSL_CERTFILE` / `BOURSE_SSL_KEYFILE` dans `.env
 ### Sécurité en place
 
 - Mots de passe hachés avec Argon2 ; sessions aléatoires stockées hachées en base, cookie `HttpOnly` + `SameSite=Lax`.
-- Anti force brute : blocage temporaire après 5 échecs en 15 min (par IP et par utilisateur).
+- Anti force brute : blocage temporaire après 5 échecs en 15 min (par IP et par utilisateur), y compris sur la saisie du mot de passe actuel lors d'un changement.
 - Protection CSRF (en-tête obligatoire + vérification de l'origine) sur toutes les requêtes qui modifient des données.
 - En-têtes de sécurité (CSP stricte, `X-Frame-Options`, HSTS en HTTPS…), aucune ressource externe (ECharts est servi localement).
 
@@ -89,11 +112,13 @@ bourse/
 deploy/           service systemd, exemple Caddy
 ```
 
-API (toutes les routes demandent une session, sauf `/api/login`) :
+API (toutes les routes demandent une session, sauf `/api/login` et `/api/setup`) :
 
 | Méthode | Route | Rôle |
 |---|---|---|
 | POST | `/api/login`, `/api/logout` | connexion / déconnexion |
+| GET/POST | `/api/setup` | création du premier compte administrateur (base vide, réseau local) |
+| GET/POST/PATCH/DELETE | `/api/admin/users[/{id}]` | gestion des comptes (administrateurs) ; `POST …/{id}/logout` ferme ses sessions |
 | GET | `/api/search?q=` | recherche d'instruments |
 | GET | `/api/history/{symbole}?period=1y` | historique (`1d 5d 1mo 6mo ytd 1y 5y max`) |
 | GET | `/api/quotes?symbols=a,b` | dernier cours et variation du jour |

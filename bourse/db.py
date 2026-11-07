@@ -1,10 +1,15 @@
 """Accès SQLite : utilisateurs, sessions, favoris, préférences."""
 
+import logging
+import os
 import sqlite3
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator
 
 from . import config
+
+log = logging.getLogger("bourse.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -60,6 +65,37 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _secure_permissions() -> None:
+    """Base et dossier lisibles uniquement par l'utilisateur qui fait tourner le serveur."""
+    try:
+        os.chmod(config.DB_PATH.parent, 0o700)
+        for suffix in ("", "-wal", "-shm"):
+            path = Path(str(config.DB_PATH) + suffix)
+            if path.exists():
+                os.chmod(path, 0o600)
+    except OSError as exc:
+        log.warning("Impossible de restreindre les droits de %s : %s", config.DB_PATH, exc)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
+    if "last_login_at" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN last_login_at INTEGER")
+    # Avant l'arrivée de l'administration web, aucun compte n'était administrateur :
+    # le plus ancien compte le devient pour qu'il reste possible de gérer les utilisateurs.
+    if not conn.execute("SELECT 1 FROM users WHERE is_admin = 1").fetchone():
+        row = conn.execute("SELECT id, username FROM users ORDER BY created_at, id LIMIT 1").fetchone()
+        if row:
+            conn.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (row["id"],))
+            log.warning("Aucun administrateur : « %s » est promu administrateur.", row["username"])
+
+
 def init_db() -> None:
-    with connect() as conn:
-        conn.executescript(SCHEMA)
+    old_umask = os.umask(0o077)  # fichiers créés en 600 / dossiers en 700
+    try:
+        with connect() as conn:
+            conn.executescript(SCHEMA)
+            _migrate(conn)
+    finally:
+        os.umask(old_umask)
+    _secure_permissions()

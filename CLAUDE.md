@@ -30,7 +30,13 @@ Ne jamais supprimer une instruction : la marquer comme remplacée si elle évolu
 ### Utilisateurs et favoris
 - **Aucun indice suivi par défaut** ; l'utilisateur recherche des indices et les enregistre comme **favoris**.
 - Favoris **côté serveur, par utilisateur** (comptes avec identifiant / mot de passe), donc synchronisés entre appareils.
-- Comptes gérés en ligne de commande (`python -m bourse.cli adduser|passwd|deluser|users`).
+- Comptes gérés **depuis l'interface web** (demande du 2026-11-07, remplace la gestion uniquement en ligne de commande) :
+  - rôle **administrateur** : créer, renommer, réinitialiser le mot de passe, donner/retirer le rôle admin,
+    fermer les sessions, supprimer un compte ; le dernier administrateur est protégé ;
+  - chaque utilisateur change son propre mot de passe depuis le menu de son compte ;
+  - base vide : la page de connexion propose de créer le premier compte administrateur (réseau local uniquement).
+- La ligne de commande reste disponible (`python -m bourse.cli adduser|passwd|admin|deluser|users`).
+- Stockage : SQLite `data/bourse.db` (droits 600), mots de passe en Argon2id, jetons de session stockés hachés (SHA-256).
 
 ### Graphique
 - Interface principale : un graphique de la valeur d'un indice au cours du temps.
@@ -65,3 +71,4 @@ Ne jamais supprimer une instruction : la marquer comme remplacée si elle évolu
 | 2026-11-07 | Demande initiale : programme Python + venv, serveur web Linux port 9699, suivi git (initié par Claude), accès navigateur et téléphone avec affichage ergonomique, graphique d'un indice boursier via une API sérieuse, période ajustable (choix laissé à Claude), aucun indice par défaut, recherche + favoris, courbe simple par défaut avec affichages optionnels masqués, zoom molette / clic molette + rectangle / pincement. |
 | 2026-11-07 | Réponses aux questions : source **Yahoo Finance** ; favoris **côté serveur, par utilisateur** ; serveur **exposé sur Internet** ; recherche sur **tout instrument**. |
 | 2026-11-07 | Créer un fichier `CLAUDE.md` qui suit toutes les instructions de l'utilisateur (ce fichier). |
+| 2026-11-07 | Expliquer le stockage des utilisateurs / mots de passe et sa robustesse. Pouvoir **créer et modifier les utilisateurs depuis l'interface web** plutôt qu'en ligne de commande → rôle administrateur, écran « Gérer les utilisateurs », création du premier compte depuis la page de connexion. Droits du fichier de base restreints à 600. |

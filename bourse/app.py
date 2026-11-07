@@ -1,5 +1,6 @@
 """Application web FastAPI : pages, API JSON, sécurité."""
 
+import ipaddress
 import json
 import logging
 import time
@@ -126,25 +127,38 @@ class PasswordBody(BaseModel):
     new: str = Field(max_length=256)
 
 
-@app.post("/api/login")
-def login(body: LoginBody, request: Request, response: Response):
-    ip = request.client.host if request.client else "?"
-    keys = (f"ip:{ip}", f"user:{body.username.strip().lower()}")
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
+def _check_throttle(*keys: str) -> None:
     wait = auth.throttle.retry_after(*keys)
     if wait:
-        raise HTTPException(429, f"Trop de tentatives. Réessayez dans {max(1, wait // 60)} min.",
+        raise HTTPException(429, f"Trop de tentatives. Réessayez dans {max(1, -(-wait // 60))} min.",
                             headers={"Retry-After": str(wait)})
+
+
+def _open_session(user: auth.User, request: Request, response: Response) -> None:
+    token = auth.create_session(user, request.headers.get("user-agent"))
+    response.set_cookie(
+        auth.COOKIE_NAME, token, max_age=config.SESSION_DAYS * 86400, httponly=True,
+        secure=_cookie_secure(request), samesite="lax", path="/",
+    )
+
+
+@app.post("/api/login")
+def login(body: LoginBody, request: Request, response: Response):
+    ip = _client_ip(request)
+    keys = (f"ip:{ip}", f"user:{body.username.strip().lower()}")
+    _check_throttle(*keys)
     user = auth.authenticate(body.username, body.password)
     if user is None:
         auth.throttle.failure(*keys)
         log.warning("Échec de connexion pour « %s » depuis %s", body.username[:40], ip)
         raise HTTPException(401, "Identifiant ou mot de passe incorrect.")
     auth.throttle.success(*keys)
-    token = auth.create_session(user, request.headers.get("user-agent"))
-    response.set_cookie(
-        auth.COOKIE_NAME, token, max_age=config.SESSION_DAYS * 86400, httponly=True,
-        secure=_cookie_secure(request), samesite="lax", path="/",
-    )
+    auth.record_login(user.id)
+    _open_session(user, request, response)
     log.info("Connexion de « %s » depuis %s", user.username, ip)
     return {"username": user.username}
 
@@ -158,23 +172,145 @@ def logout(request: Request, response: Response):
 
 @app.get("/api/me")
 def me(user: auth.User = Depends(current_user)):
-    return {"username": user.username, "isAdmin": user.is_admin}
+    return {"id": user.id, "username": user.username, "isAdmin": user.is_admin}
 
 
 @app.post("/api/password")
 def change_password(body: PasswordBody, request: Request, response: Response,
                     user: auth.User = Depends(current_user)):
+    # Limite aussi les essais sur le mot de passe actuel (session volée, appareil laissé ouvert…).
+    keys = (f"ip:{_client_ip(request)}", f"user:{user.username.lower()}")
+    _check_throttle(*keys)
     try:
         auth.change_own_password(user, body.current, body.new)
     except auth.AuthError as exc:
+        if "actuel" in str(exc):
+            auth.throttle.failure(*keys)
         raise HTTPException(400, str(exc))
     # Toutes les sessions ont été invalidées : on en recrée une pour l'appareil courant.
-    token = auth.create_session(user, request.headers.get("user-agent"))
-    response.set_cookie(
-        auth.COOKIE_NAME, token, max_age=config.SESSION_DAYS * 86400, httponly=True,
-        secure=_cookie_secure(request), samesite="lax", path="/",
-    )
+    _open_session(user, request, response)
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- première installation
+
+class SetupBody(BaseModel):
+    username: str = Field(max_length=100)
+    password: str = Field(max_length=256)
+
+
+def _is_local(request: Request) -> bool:
+    try:
+        ip = ipaddress.ip_address(_client_ip(request))
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private or ip.is_link_local
+
+
+@app.get("/api/setup")
+def setup_status(request: Request):
+    needed = auth.count_users() == 0
+    return {"needed": needed, "allowed": needed and _is_local(request)}
+
+
+@app.post("/api/setup")
+def setup(body: SetupBody, request: Request, response: Response):
+    """Création du premier compte (administrateur), uniquement si la base est vide et depuis le réseau local."""
+    if auth.count_users() != 0:
+        raise HTTPException(409, "Un compte existe déjà.")
+    if not _is_local(request):
+        raise HTTPException(403, "Le premier compte doit être créé depuis le réseau local.")
+    try:
+        user = auth.create_user(body.username, body.password, is_admin=True)
+    except auth.AuthError as exc:
+        raise HTTPException(400, str(exc))
+    auth.record_login(user.id)
+    _open_session(user, request, response)
+    log.warning("Premier compte administrateur « %s » créé depuis %s", user.username, _client_ip(request))
+    return {"username": user.username}
+
+
+# --------------------------------------------------------------------------- administration des comptes
+
+def admin_user(user: auth.User = Depends(current_user)) -> auth.User:
+    if not user.is_admin:
+        raise HTTPException(403, "Réservé aux administrateurs.")
+    return user
+
+
+class NewUserBody(BaseModel):
+    username: str = Field(max_length=100)
+    password: str = Field(max_length=256)
+    isAdmin: bool = False
+
+
+class UserPatchBody(BaseModel):
+    username: str | None = Field(default=None, max_length=100)
+    password: str | None = Field(default=None, max_length=256)
+    isAdmin: bool | None = None
+
+
+def _users_payload() -> dict:
+    return {"users": [
+        {
+            "id": u["id"], "username": u["username"], "isAdmin": bool(u["is_admin"]),
+            "createdAt": u["created_at"], "lastLoginAt": u["last_login_at"],
+            "favorites": u["favorites"], "sessions": u["sessions"],
+        }
+        for u in auth.list_users()
+    ]}
+
+
+@app.get("/api/admin/users")
+def admin_list_users(_: auth.User = Depends(admin_user)):
+    return _users_payload()
+
+
+@app.post("/api/admin/users")
+def admin_create_user(body: NewUserBody, admin: auth.User = Depends(admin_user)):
+    try:
+        user = auth.create_user(body.username, body.password, body.isAdmin)
+    except auth.AuthError as exc:
+        raise HTTPException(400, str(exc))
+    log.info("« %s » a créé le compte « %s »%s", admin.username, user.username, " (admin)" if body.isAdmin else "")
+    return _users_payload()
+
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(user_id: int, body: UserPatchBody, request: Request, response: Response,
+                      admin: auth.User = Depends(admin_user)):
+    try:
+        auth.update_user(user_id, username=body.username, is_admin=body.isAdmin, password=body.password or None)
+    except auth.AuthError as exc:
+        raise HTTPException(400, str(exc))
+    log.info("« %s » a modifié le compte n°%s", admin.username, user_id)
+    if user_id == admin.id and body.password:
+        # L'administrateur a changé son propre mot de passe : on garde cet appareil connecté.
+        refreshed = auth.User(id=admin.id, username=body.username or admin.username,
+                              is_admin=admin.is_admin if body.isAdmin is None else body.isAdmin)
+        _open_session(refreshed, request, response)
+    return _users_payload()
+
+
+@app.post("/api/admin/users/{user_id}/logout")
+def admin_revoke_sessions(user_id: int, request: Request, response: Response,
+                          admin: auth.User = Depends(admin_user)):
+    count = auth.revoke_sessions(user_id)
+    if user_id == admin.id:
+        _open_session(admin, request, response)
+    return {**_users_payload(), "revoked": count}
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(user_id: int, admin: auth.User = Depends(admin_user)):
+    if user_id == admin.id:
+        raise HTTPException(400, "Vous ne pouvez pas supprimer votre propre compte.")
+    try:
+        auth.delete_user(user_id)
+    except auth.AuthError as exc:
+        raise HTTPException(400, str(exc))
+    log.info("« %s » a supprimé le compte n°%s", admin.username, user_id)
+    return _users_payload()
 
 
 # --------------------------------------------------------------------------- marché

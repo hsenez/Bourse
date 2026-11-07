@@ -16,14 +16,24 @@
       <img src="/static/icon.svg" alt="" width="28" height="28">
       <span>Bourse</span>
     </div>
+    <p class="login-intro" id="setup-intro" hidden>
+      Première utilisation : créez le compte administrateur. Il pourra ensuite créer les autres comptes.
+    </p>
+    <p class="login-intro" id="setup-remote" hidden>
+      Aucun compte n'existe encore. Le premier compte doit être créé depuis le réseau local
+      (ou avec <code>python -m bourse.cli adduser &lt;nom&gt; --admin</code>).
+    </p>
     <label>Utilisateur
       <input name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required autofocus>
     </label>
     <label>Mot de passe
       <input name="password" type="password" autocomplete="current-password" required>
     </label>
+    <label id="confirm-label" hidden>Confirmation du mot de passe
+      <input name="confirm" type="password" autocomplete="new-password">
+    </label>
     <p class="form-error" id="login-error" hidden></p>
-    <button type="submit" class="primary">Se connecter</button>
+    <button type="submit" class="primary" id="login-submit">Se connecter</button>
   </form>
   <script src="/static/js/api.js"></script>
   <script src="/static/js/login.js"></script>

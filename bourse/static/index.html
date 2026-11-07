@@ -47,9 +47,17 @@
       </div>
 
       <div class="sidebar-foot">
-        <span class="user" id="username"></span>
-        <button class="text-btn" id="open-password">Mot de passe</button>
-        <button class="text-btn" id="logout">Déconnexion</button>
+        <button class="account-btn" id="account-btn" aria-haspopup="menu" aria-expanded="false">
+          <span class="avatar" id="avatar" aria-hidden="true"></span>
+          <span class="account-name" id="username"></span>
+          <span class="badge index" id="admin-badge" hidden>admin</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14l5-5 5 5"/></svg>
+        </button>
+        <div class="menu" id="account-menu" role="menu" hidden>
+          <button role="menuitem" id="open-password">Changer mon mot de passe</button>
+          <button role="menuitem" id="open-users" hidden>Gérer les utilisateurs</button>
+          <button role="menuitem" id="logout">Déconnexion</button>
+        </div>
       </div>
     </aside>
     <div class="backdrop" id="backdrop" hidden></div>
@@ -146,6 +154,47 @@
       <div class="dialog-actions">
         <button type="button" class="text-btn" id="cancel-password">Annuler</button>
         <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="users-dialog" class="wide">
+    <!-- Vue liste -->
+    <div id="users-list-view">
+      <div class="dialog-head">
+        <h2>Utilisateurs</h2>
+        <button class="icon-btn" id="close-users" aria-label="Fermer">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <ul class="user-list" id="user-list"></ul>
+      <div class="dialog-actions">
+        <button type="button" class="primary" id="new-user">Nouvel utilisateur</button>
+      </div>
+    </div>
+
+    <!-- Vue formulaire (création / modification) -->
+    <form id="user-form" hidden novalidate>
+      <div class="dialog-head">
+        <h2 id="user-form-title">Nouvel utilisateur</h2>
+      </div>
+      <label>Nom d'utilisateur
+        <input name="username" autocomplete="off" autocapitalize="off" spellcheck="false" required maxlength="40">
+      </label>
+      <label><span id="user-password-label">Mot de passe</span>
+        <input name="password" type="password" autocomplete="new-password" placeholder="10 caractères minimum">
+      </label>
+      <label>Confirmation
+        <input name="confirm" type="password" autocomplete="new-password">
+      </label>
+      <label class="toggle inline"><input type="checkbox" name="isAdmin"><span>Administrateur (peut gérer les comptes)</span></label>
+      <p class="form-hint" id="user-form-hint"></p>
+      <p class="form-error" id="user-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="text-btn danger" id="delete-user" hidden>Supprimer</button>
+        <span class="spacer"></span>
+        <button type="button" class="text-btn" id="cancel-user">Annuler</button>
+        <button type="submit" class="primary" id="save-user">Créer</button>
       </div>
     </form>
   </dialog>

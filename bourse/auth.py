@@ -48,12 +48,26 @@ def _validate_password(password: str) -> None:
         raise AuthError("Mot de passe trop long.")
 
 
+def _check_unique(conn, username: str, exclude_id: int | None = None) -> None:
+    row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+    if row and row["id"] != exclude_id:
+        raise AuthError(f"L'utilisateur « {username} » existe déjà.")
+
+
+def _other_admins(conn, user_id: int) -> int:
+    return conn.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1 AND id != ?", (user_id,)).fetchone()[0]
+
+
+def count_users() -> int:
+    with connect() as conn:
+        return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+
 def create_user(username: str, password: str, is_admin: bool = False) -> User:
     username = _validate_username(username)
     _validate_password(password)
     with connect() as conn:
-        if conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
-            raise AuthError(f"L'utilisateur « {username} » existe déjà.")
+        _check_unique(conn, username)
         cur = conn.execute(
             "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)",
             (username, _hasher.hash(password), int(is_admin), int(time.time())),
@@ -61,27 +75,66 @@ def create_user(username: str, password: str, is_admin: bool = False) -> User:
         return User(id=cur.lastrowid, username=username, is_admin=is_admin)
 
 
-def delete_user(username: str) -> bool:
+def user_id_by_name(username: str) -> int:
     with connect() as conn:
-        return conn.execute("DELETE FROM users WHERE username = ?", (username,)).rowcount > 0
+        row = conn.execute("SELECT id FROM users WHERE username = ?", (username.strip(),)).fetchone()
+    if not row:
+        raise AuthError(f"Utilisateur « {username} » introuvable.")
+    return row["id"]
 
 
-def set_password(username: str, password: str) -> None:
-    _validate_password(password)
+def update_user(user_id: int, *, username: str | None = None, is_admin: bool | None = None,
+                password: str | None = None) -> None:
+    """Modifie un compte. Un nouveau mot de passe ferme toutes les sessions de ce compte."""
+    if username is not None:
+        username = _validate_username(username)
+    if password is not None:
+        _validate_password(password)
     with connect() as conn:
-        row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        row = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
         if not row:
-            raise AuthError(f"Utilisateur « {username} » introuvable.")
-        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (_hasher.hash(password), row["id"]))
-        # Un changement de mot de passe déconnecte toutes les sessions existantes.
-        conn.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
+            raise AuthError("Utilisateur introuvable.")
+        if username is not None:
+            _check_unique(conn, username, exclude_id=user_id)
+            conn.execute("UPDATE users SET username = ? WHERE id = ?", (username, user_id))
+        if is_admin is not None:
+            if row["is_admin"] and not is_admin and _other_admins(conn, user_id) == 0:
+                raise AuthError("Impossible de retirer les droits du dernier administrateur.")
+            conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (int(is_admin), user_id))
+        if password is not None:
+            conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (_hasher.hash(password), user_id))
+            conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+
+
+def delete_user(user_id: int) -> None:
+    with connect() as conn:
+        row = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            raise AuthError("Utilisateur introuvable.")
+        if row["is_admin"] and _other_admins(conn, user_id) == 0:
+            raise AuthError("Impossible de supprimer le dernier administrateur.")
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+def revoke_sessions(user_id: int) -> int:
+    with connect() as conn:
+        return conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,)).rowcount
+
+
+def record_login(user_id: int) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (int(time.time()), user_id))
 
 
 def list_users() -> list[dict]:
+    now = int(time.time())
     with connect() as conn:
         rows = conn.execute(
-            "SELECT u.username, u.is_admin, u.created_at, COUNT(f.symbol) AS favorites "
-            "FROM users u LEFT JOIN favorites f ON f.user_id = u.id GROUP BY u.id ORDER BY u.username"
+            "SELECT u.id, u.username, u.is_admin, u.created_at, u.last_login_at, "
+            "(SELECT COUNT(*) FROM favorites f WHERE f.user_id = u.id) AS favorites, "
+            "(SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > ?) AS sessions "
+            "FROM users u ORDER BY u.username COLLATE NOCASE",
+            (now,),
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -110,7 +163,7 @@ def authenticate(username: str, password: str) -> User | None:
 def change_own_password(user: User, current: str, new: str) -> None:
     if authenticate(user.username, current) is None:
         raise AuthError("Mot de passe actuel incorrect.")
-    set_password(user.username, new)
+    update_user(user.id, password=new)
 
 
 # --------------------------------------------------------------------------- sessions
