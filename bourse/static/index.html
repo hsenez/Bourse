@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)">
+  <title>Bourse</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="layout">
+    <!-- ================================================= barre latérale / tiroir -->
+    <aside class="sidebar" id="sidebar" aria-label="Recherche et favoris">
+      <div class="sidebar-head">
+        <div class="brand">
+          <img src="/static/icon.svg" alt="" width="22" height="22">
+          <span>Bourse</span>
+        </div>
+        <button class="icon-btn only-mobile" id="close-drawer" aria-label="Fermer le menu">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+
+      <label class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="search-input" type="search" placeholder="Rechercher un indice…"
+               autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+      </label>
+
+      <div class="sidebar-body">
+        <section id="search-section" hidden>
+          <h2 class="section-title">Résultats</h2>
+          <ul class="list" id="search-results"></ul>
+          <p class="list-status" id="search-status"></p>
+        </section>
+
+        <section id="favorites-section">
+          <h2 class="section-title">Favoris</h2>
+          <ul class="list" id="favorites"></ul>
+          <p class="list-status" id="favorites-empty" hidden>
+            Aucun favori pour l'instant. Recherchez un indice puis touchez ★ pour l'ajouter.
+          </p>
+        </section>
+      </div>
+
+      <div class="sidebar-foot">
+        <span class="user" id="username"></span>
+        <button class="text-btn" id="open-password">Mot de passe</button>
+        <button class="text-btn" id="logout">Déconnexion</button>
+      </div>
+    </aside>
+    <div class="backdrop" id="backdrop" hidden></div>
+
+    <!-- ================================================= zone principale -->
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" id="open-drawer" aria-label="Recherche et favoris">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <div class="title-block">
+          <h1 id="instrument-name">Bourse</h1>
+          <div class="subtitle" id="instrument-meta"></div>
+        </div>
+        <button class="icon-btn star" id="toggle-favorite" aria-label="Ajouter aux favoris" aria-pressed="false" hidden>
+          <svg viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/></svg>
+        </button>
+        <div class="options-anchor">
+          <button class="icon-btn" id="open-options" aria-label="Options d'affichage" aria-expanded="false" hidden>
+            <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+          </button>
+          <div class="panel" id="options-panel" hidden>
+            <div class="panel-head">
+              <h2>Affichage</h2>
+              <button class="icon-btn only-mobile" id="close-options" aria-label="Fermer">
+                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+            <label class="toggle"><input type="checkbox" data-opt="candles"><span>Chandeliers (OHLC)</span></label>
+            <label class="toggle"><input type="checkbox" data-opt="volume"><span>Volume <small id="no-volume" hidden>(non disponible)</small></span></label>
+            <label class="toggle"><input type="checkbox" data-opt="ma20"><span>Moyenne mobile 20</span></label>
+            <label class="toggle"><input type="checkbox" data-opt="ma50"><span>Moyenne mobile 50</span></label>
+            <label class="toggle"><input type="checkbox" data-opt="ma200"><span>Moyenne mobile 200</span></label>
+            <label class="toggle"><input type="checkbox" data-opt="bollinger"><span>Bandes de Bollinger (20, 2)</span></label>
+            <label class="toggle"><input type="checkbox" data-opt="pct"><span>Variation en % sur la période</span></label>
+            <label class="toggle"><input type="checkbox" data-opt="log"><span>Échelle logarithmique</span></label>
+          </div>
+        </div>
+      </header>
+
+      <div class="quote" id="quote" hidden>
+        <span class="price" id="price"></span>
+        <span class="change" id="day-change"></span>
+        <span class="period-change" id="period-change"></span>
+      </div>
+
+      <nav class="periods" id="periods" aria-label="Période" hidden>
+        <button data-period="1d">1J</button>
+        <button data-period="5d">5J</button>
+        <button data-period="1mo">1M</button>
+        <button data-period="6mo">6M</button>
+        <button data-period="ytd" title="Depuis le 1er janvier">YTD</button>
+        <button data-period="1y">1A</button>
+        <button data-period="5y">5A</button>
+        <button data-period="max">Max</button>
+      </nav>
+
+      <div class="chart-wrap">
+        <div id="chart" class="chart"></div>
+        <div class="zoom-rect" id="zoom-rect" hidden></div>
+        <button class="reset-zoom" id="reset-zoom" hidden>Réinitialiser le zoom</button>
+        <div class="chart-message" id="chart-message" hidden></div>
+
+        <div class="empty" id="empty" hidden>
+          <h2>Aucun indice affiché</h2>
+          <p>Recherchez un indice et ajoutez-le à vos favoris avec ★. Quelques exemples :</p>
+          <div class="chips" id="suggestions">
+            <button data-symbol="^FCHI" data-name="CAC 40">CAC 40</button>
+            <button data-symbol="^STOXX50E" data-name="Euro Stoxx 50">Euro Stoxx 50</button>
+            <button data-symbol="^GDAXI" data-name="DAX">DAX</button>
+            <button data-symbol="^GSPC" data-name="S&amp;P 500">S&amp;P 500</button>
+            <button data-symbol="^IXIC" data-name="Nasdaq Composite">Nasdaq</button>
+            <button data-symbol="^N225" data-name="Nikkei 225">Nikkei 225</button>
+          </div>
+          <button class="primary only-mobile" id="empty-search">Rechercher</button>
+        </div>
+      </div>
+
+      <footer class="hints">
+        <span class="hint-mouse">Molette : zoom · Glisser : déplacer · Clic molette (ou Maj) + glisser : zoom sur zone · Double-clic : réinitialiser</span>
+        <span class="hint-touch">Pincer : zoom · Glisser : déplacer · Double-tap : réinitialiser</span>
+        <span class="source" id="source"></span>
+      </footer>
+    </main>
+  </div>
+
+  <dialog id="password-dialog">
+    <form id="password-form" method="dialog">
+      <h2>Changer le mot de passe</h2>
+      <label>Mot de passe actuel<input type="password" name="current" autocomplete="current-password" required></label>
+      <label>Nouveau mot de passe<input type="password" name="new" autocomplete="new-password" minlength="10" required></label>
+      <label>Confirmation<input type="password" name="confirm" autocomplete="new-password" minlength="10" required></label>
+      <p class="form-error" id="password-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="text-btn" id="cancel-password">Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="/static/vendor/echarts.min.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/chart.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Reverse proxy HTTPS avec Caddy (certificat Let's Encrypt automatique).
+# Prérequis : un nom de domaine pointant vers votre IP publique (ex. DynDNS / DuckDNS),
+# ports 80 et 443 redirigés vers cette machine sur la box.
+# Installation (Manjaro) : sudo pacman -S caddy
+# Puis : sudo cp deploy/Caddyfile.example /etc/caddy/Caddyfile (adapter le domaine)
+#        sudo systemctl enable --now caddy
+# Dans .env : BOURSE_HOST=127.0.0.1 (le port 9699 n'est alors plus exposé directement).
+
+bourse.example.duckdns.org {
+	encode gzip
+	reverse_proxy 127.0.0.1:9699
+}

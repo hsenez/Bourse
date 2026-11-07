@@ -1,0 +1,26 @@
+# Service systemd utilisateur.
+# Installation :
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/bourse.service ~/.config/systemd/user/
+#   (adapter WorkingDirectory si besoin)
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now bourse
+#   loginctl enable-linger $USER   # pour démarrer sans session ouverte
+# Journaux : journalctl --user -u bourse -f
+
+[Unit]
+Description=Bourse - suivi d'indices boursiers
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Outils_Info/Bourse
+ExecStart=%h/Outils_Info/Bourse/.venv/bin/python -m bourse
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
